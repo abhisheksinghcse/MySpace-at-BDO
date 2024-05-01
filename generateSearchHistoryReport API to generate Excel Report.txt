@@ -1,0 +1,192 @@
+#################################  API to generate Report ################################
+
+//############controller#################
+@PostMapping("/generateSearchHistoryReport")
+	public ResponseEntity<byte[]> generateSearchHistoryReport(@RequestBody SearchHistoryDTO searchHistoryDTO,HttpServletResponse response) {
+	    
+		return  this.reportServiceImpl.exportSearchHistoryReport(searchHistoryDTO,response);
+	}
+	
+//############service##################
+ ResponseEntity<byte[]> exportSearchHistoryReport(SearchHistoryDTO searchHistoryDTO, HttpServletResponse response);
+ 
+//##################serviceImpl##################
+// generate SearchHistory Excel Report
+	public ResponseEntity<byte[]> exportSearchHistoryReport(SearchHistoryDTO searchHistoryDTO,
+			HttpServletResponse response) {
+
+		LocalDate fromlocalDate = LocalDate.parse(searchHistoryDTO.getFromDate(), DateTimeFormatter.ISO_DATE);
+		LocalDateTime fromDate = fromlocalDate.atStartOfDay();
+
+		LocalDate  toLocalDate = LocalDate.parse(searchHistoryDTO.getToDate(), DateTimeFormatter.ISO_DATE);
+		LocalDateTime  toDate= LocalDateTime.of(toLocalDate, LocalTime.MAX);
+	
+		List<SearchDetail> results = searchDetailsRepositry.exportRecordsBetweenDates(searchHistoryDTO.getRequestedBy(), fromDate, toDate);
+        try{
+               String filename = "search_history_report.xlsx";
+               byte[] excelByteData = generateExcelReports(results);
+               HttpHeaders headers = new HttpHeaders();
+               headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);
+               headers.setContentDispositionFormData(filename, filename);
+               headers.setContentLength(excelByteData.length);
+
+            return new ResponseEntity<>(excelByteData, headers, org.springframework.http.HttpStatus.OK);
+        } catch (Exception e) {
+        	log.error(ERROR_GENERATED,e);
+        }
+		 return (ResponseEntity<byte[]>) ResponseEntity.ok();
+	}
+
+	// create a functions to generateReport
+	public static byte[] generateExcelReports(List<SearchDetail> results) throws IOException {
+
+		try (XSSFWorkbook workbook = new XSSFWorkbook()) {
+
+			XSSFSheet sheet = workbook.createSheet("Search History Report");
+
+			// create Header Row
+			XSSFRow headerRow = sheet.createRow(0);
+            String[] headers = {"CIN", "Company Name", "GSTN No", "MSME No", "Request Time", "Response Time", "MSME Status","Requested By","Remark"};
+            for (int i = 0; i < headers.length; i++) {
+            	XSSFCell cell = headerRow.createCell(i);
+                cell.setCellValue(headers[i]);
+               // Set header cell style
+                XSSFCellStyle style = workbook.createCellStyle();
+                style.setFillForegroundColor(IndexedColors.DARK_RED.getIndex());
+                style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+               // Make the Header Font Bold
+                Font font = workbook.createFont();
+                font.setBold(true);
+                font.setColor(IndexedColors.WHITE.getIndex()); // Set font color to white
+                style.setFont(font);
+                cell.setCellStyle(style); 
+                
+               // Center align the header text
+                style.setAlignment(HorizontalAlignment.CENTER);
+                cell.setCellStyle(style);
+            }
+    
+         // Create date format for the "Request Time" and "Response Time" columns
+            XSSFCellStyle dateStyle = workbook.createCellStyle();
+            XSSFCreationHelper createHelper = workbook.getCreationHelper();
+            dateStyle.setDataFormat(createHelper.createDataFormat().getFormat("yyyy-MM-dd HH:mm:ss"));
+            
+            //create data row
+            int rowNum = 1;
+            for(SearchDetail searchResult: results) {
+            	String remark ="";
+            	String msmeNumber = searchResult.getMsmeNumber();
+            	if(StringUtils.isEmpty(msmeNumber)) {
+					remark ="No Records Found";
+				}
+            	XSSFRow row = sheet.createRow(rowNum++);
+            	row.createCell(0).setCellValue(searchResult.getCin());
+            	row.createCell(1).setCellValue(searchResult.getCompanyName());
+            	row.createCell(2).setCellValue(searchResult.getGstn());
+            	row.createCell(3).setCellValue(searchResult.getMsmeNumber());
+            // Apply date format to "Request Time" and "Response Time" columns
+                XSSFCell requestTimeCell = row.createCell(4);
+                requestTimeCell.setCellValue(searchResult.getRequestedAt());
+                requestTimeCell.setCellStyle(dateStyle);
+                XSSFCell responseTimeCell = row.createCell(5);
+                responseTimeCell.setCellValue(searchResult.getResponseAt());
+                responseTimeCell.setCellStyle(dateStyle);
+            	row.createCell(6).setCellValue(searchResult.getMsmeStatus());
+            	row.createCell(7).setCellValue(searchResult.getRequestedBy());
+            	row.createCell(8).setCellValue(remark);
+            }    
+           //set the columns width
+            ManageServiceUtils.autoSizeAllColumnsWithMinWidth(sheet, 10 * 256);
+             //create a ByteArrayOutputStream
+               ByteArrayOutputStream  outputStream = new ByteArrayOutputStream();
+            //write  to ByteArrayOutputStream
+                 workbook.write(outputStream);
+             return outputStream.toByteArray();
+		}	
+	}
+
+
+//#####################Repository###########
+
+
+public interface SearchDetailsRepository extends JpaRepository<SearchDetailsEntity,Long>{
+	//@Query(value ="SELECT * FROM am_search_detail WHERE requested_by = :requestedBy AND requested_at BETWEEN :fromDate AND :toDate", nativeQuery = true)
+	@Query(value = "select s.cin as Cin,s.company_name as CompanyName, s.gstn as Gstn,s.msme_number as MsmeNumber,s.msme_status as MsmeStatus, s.requested_at as requestedAt,s.response_at as ResponseAt , "
+			+ "concat( u.login_id,' (', u.first_name,' ',u.last_name,')') as RequestedBy from am_search_detail s join am_user_master u on s.requested_by = u.user_id "
+			+ " where s.requested_by =:requestedBy AND s.requested_at BETWEEN :fromDate AND :toDate",
+			countQuery = "SELECT COUNT(*) FROM am_search_detail s WHERE s.requested_by = :requestedBy AND s.requested_at BETWEEN :fromDate AND :toDate",
+			nativeQuery = true)
+    public Page<SearchDetail> findRecordsBetweenDates(@Param("requestedBy") Integer requestedBy, @Param("fromDate")LocalDateTime fromDate,
+			@Param("toDate") LocalDateTime toDate, @Param("pageable") Pageable pageable);
+
+	
+	@Query(value = "select s.cin as Cin,s.company_name as CompanyName, s.gstn as Gstn,s.msme_number as MsmeNumber,s.msme_status as MsmeStatus, s.requested_at as RequestedAt,s.response_at as ResponseAt , "
+			+ "concat( u.login_id,' (', u.first_name,' ',u.last_name,')') as RequestedBy from am_search_detail s join am_user_master u on s.requested_by = u.user_id "
+			+ " where s.requested_by =:requestedBy AND s.requested_at BETWEEN :fromDate AND :toDate", nativeQuery = true)
+	public List<SearchDetail> exportRecordsBetweenDates(int requestedBy, LocalDateTime fromDate, LocalDateTime toDate);
+
+		
+}
+ 
+//#############DTO#################
+
+package com.bdo.report.api.model;
+
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+
+@NoArgsConstructor
+@AllArgsConstructor
+@Getter
+@Setter
+@Builder
+public class SearchHistoryDTO {
+
+	@JsonProperty("id")
+	private Long id;
+
+	@JsonProperty("cin")
+	private String cin;
+
+	@JsonProperty("company_name")
+	private String companyName;
+
+	@JsonProperty("gstn")
+	private String gstn;
+
+	@JsonProperty("msme_number")
+	private String msmeNumber;
+
+	@JsonProperty("msme_status")
+	private String msmeStatus;
+
+	@JsonProperty("requestedBy")
+	private int requestedBy;
+
+	@JsonProperty("fromDate")
+	private String fromDate;
+
+	@JsonProperty("toDate")
+	private String toDate;
+
+	@JsonProperty("requestAt")
+	private String requestAt;
+	
+
+	@JsonProperty("responseTime")
+	private String responseTime;
+
+	@JsonProperty("pageNo")
+	private String pageNo;
+
+	@JsonProperty("pageSize")
+	private String pageSize;
+
+}
