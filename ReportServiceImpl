@@ -1,0 +1,469 @@
+package com.bdo.report.api.service.impl;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+
+import javax.servlet.http.HttpServletResponse;
+
+import org.apache.commons.lang3.StringUtils;
+import org.apache.poi.ss.usermodel.FillPatternType;
+import org.apache.poi.ss.usermodel.Font;
+import org.apache.poi.ss.usermodel.HorizontalAlignment;
+import org.apache.poi.ss.usermodel.IndexedColors;
+import org.apache.poi.xssf.usermodel.XSSFCell;
+import org.apache.poi.xssf.usermodel.XSSFCellStyle;
+import org.apache.poi.xssf.usermodel.XSSFCreationHelper;
+import org.apache.poi.xssf.usermodel.XSSFRow;
+import org.apache.poi.xssf.usermodel.XSSFSheet;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Service;
+
+import com.bdo.report.api.entity.ApiMstEntity;
+import com.bdo.report.api.entity.CompanyMstEntity;
+import com.bdo.report.api.entity.VendorMstEntity;
+import com.bdo.report.api.model.CompUsgLogProjDTO;
+import com.bdo.report.api.model.CompanyWiseApiProjectionDTO;
+import com.bdo.report.api.model.CompanyWiseApiReqDTO;
+import com.bdo.report.api.model.CompanyWiseUsageReqDTO;
+import com.bdo.report.api.model.PageableDataResponse;
+import com.bdo.report.api.model.PagebleResponses;
+import com.bdo.report.api.model.ReportListRequestDTO;
+import com.bdo.report.api.model.SearchDetail;
+import com.bdo.report.api.model.SearchHistoryDTO;
+import com.bdo.report.api.model.SearchResponseDTO;
+import com.bdo.report.api.model.VendorWiseApiProjectionDTO;
+import com.bdo.report.api.model.VendorWiseReqDto;
+import com.bdo.report.api.repository.ApiMstRepository;
+import com.bdo.report.api.repository.CompanyMstRepository;
+import com.bdo.report.api.repository.SearchDetailsRepository;
+import com.bdo.report.api.repository.VendorMstRepository;
+import com.bdo.report.api.util.ErrorsDto;
+import com.bdo.report.api.util.ReportConstants;
+import com.bdo.report.api.util.ManageServiceUtils;
+import com.bdo.report.api.util.ReportUtilConstant;
+import com.bdo.report.service.ReportService;
+import com.bdo.report.validations.ReportServiceValidations;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
+import com.google.gson.JsonSyntaxException;
+
+import lombok.extern.slf4j.Slf4j;
+
+@Service
+@Slf4j
+public class ReportServiceImpl implements ReportService {
+
+	private static final String ERROR_OCCURRED_IN_OPERATION = "Error occurred in operation.";
+
+	private static final String ERROR_GENERATED = "Error generated::";
+
+	@Autowired
+	private VendorMstRepository vendorMstRepository;
+
+	@Autowired
+	private ApiMstRepository apiMstRepository;
+
+	@Autowired
+	private CompanyMstRepository companyMstRepository;
+
+	@Autowired
+	private SearchDetailsRepository searchDetailsRepositry;
+
+	public ResponseEntity<Map<String, Object>> getList(String data) {
+		ObjectMapper objectMapper = new ObjectMapper();
+		try {
+			ReportListRequestDTO reportReq = objectMapper.readValue(data, ReportListRequestDTO.class);
+			if (reportReq.getType().equalsIgnoreCase("company")) {
+				return this.getCompanyList();
+			} else if (reportReq.getType().equalsIgnoreCase("vendor")) {
+				return this.getVendorList();
+			} else if (reportReq.getType().equalsIgnoreCase("api")) {
+				return this.getApiList();
+			} else {
+				Map<String, Object> responseMap = new HashMap<>();
+				responseMap.put("data", null);
+				return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(responseMap);
+			}
+		} catch (Exception e) {
+			Map<String, Object> responseMap = new HashMap<>();
+			responseMap.put("data", null);
+			return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(responseMap);
+		}
+	}
+
+	public ResponseEntity<Map<String, Object>> getVendorWiseApiList(VendorWiseReqDto vendorWiseReqDto) {
+		Map<String, Object> responseMap = new HashMap<>();
+		List<VendorWiseApiProjectionDTO> vendorApiList = null;
+		try {
+			if (vendorWiseReqDto.getVendor_id().isBlank() || vendorWiseReqDto.getVendor_id().isEmpty()
+					|| vendorWiseReqDto.getVendor_id() == null) {
+				vendorApiList = this.vendorMstRepository.findAllVendorWiseApi();
+			} else {
+				vendorApiList = this.vendorMstRepository.findVendorWiseApiByVendorId(vendorWiseReqDto.getVendor_id());
+			}
+			responseMap.put("data", vendorApiList);
+
+		} catch (Exception e) {
+			responseMap.put("data", null);
+			return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(responseMap);
+		}
+		return ResponseEntity.ok(responseMap);
+	}
+
+	public ResponseEntity<Map<String, Object>> getVendorList() {
+		Map<String, Object> responseMap = new HashMap<>();
+
+		try {
+			List<VendorMstEntity> vendorList = this.vendorMstRepository.findAllByOrderByVendorNameAsc();
+			responseMap.put("data", vendorList);
+		} catch (Exception e) {
+			log.error(ERROR_GENERATED, e);
+			responseMap.put("data", null);
+			return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(responseMap);
+		}
+		return ResponseEntity.ok(responseMap);
+	}
+
+	public ResponseEntity<Object> getCompanyWiseApiList(CompanyWiseApiReqDTO companyWiseReq) {
+		ResponseEntity<Object> responseEntity = null;
+		Map<String, Object> responseMap = new HashMap<>();
+
+		List<ErrorsDto> errorList = ReportServiceValidations.companyWiseApiReqValidations(companyWiseReq);
+
+		if (!errorList.isEmpty()) {
+			responseEntity = new ResponseEntity<>(PagebleResponses.builder().status(ReportUtilConstant.FALSE)
+					.error(errorList).message(ERROR_OCCURRED_IN_OPERATION).build(), HttpStatus.OK);
+		} else {
+			try {
+				String fromDateStr = companyWiseReq.getFromDate();
+				String toDateStr = companyWiseReq.getToDate();
+				String fromDateStartOfDayStr = null;
+				String toDateEndOfDayStr = null;
+
+				DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
+
+				if (fromDateStr != null && !fromDateStr.isEmpty()) {
+					LocalDate fromDate = LocalDate.parse(fromDateStr, dateFormatter);
+					LocalDateTime startOfDay = fromDate.atStartOfDay();
+					fromDateStartOfDayStr = startOfDay.format(dateFormatter);
+				}
+
+				if (toDateStr != null && !toDateStr.isEmpty()) {
+					LocalDate toDate = LocalDate.parse(toDateStr, dateFormatter);
+					LocalDateTime endOfDay = toDate.atTime(LocalTime.MAX);
+					toDateEndOfDayStr = endOfDay.format(dateFormatter);
+				}
+				List<CompanyWiseApiProjectionDTO> companyApiList = this.companyMstRepository.findCompanyWiseApi(
+						companyWiseReq.getEntityId(), companyWiseReq.getVendorCode(), companyWiseReq.getApiCode(),
+						fromDateStartOfDayStr, toDateEndOfDayStr);
+				responseEntity = ResponseEntity.ok(companyApiList);
+			} catch (Exception e) {
+				log.error(ERROR_GENERATED, e);
+				responseMap.put("data", null);
+				responseMap.put("message", ReportConstants.ERROR_OCCURRED);
+				responseEntity = ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(responseMap);
+			}
+		}
+		return responseEntity;
+	}
+
+	public ResponseEntity<Object> getCompanyWiseUsageLog(CompanyWiseUsageReqDTO companyWiseReq) {
+		ResponseEntity<Object> responseEntity = null;
+
+		List<ErrorsDto> errorList = ReportServiceValidations.companyUsageReqValidations(companyWiseReq);
+
+		if (!errorList.isEmpty()) {
+			responseEntity = new ResponseEntity<>(PagebleResponses.builder().status(ReportUtilConstant.FALSE)
+					.error(errorList).message(ERROR_OCCURRED_IN_OPERATION).build(), HttpStatus.OK);
+		} else {
+			try {
+				String fromDateStr = companyWiseReq.getFromDate();
+				String toDateStr = companyWiseReq.getToDate();
+				String fromDateStartOfDayStr = null;
+				String toDateEndOfDayStr = null;
+
+				DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
+
+				if (fromDateStr != null && !fromDateStr.isEmpty()) {
+					LocalDate fromDate = LocalDate.parse(fromDateStr, dateFormatter);
+					LocalDateTime startOfDay = fromDate.atStartOfDay();
+					fromDateStartOfDayStr = startOfDay.format(dateFormatter);
+				}
+
+				if (toDateStr != null && !toDateStr.isEmpty()) {
+					LocalDate toDate = LocalDate.parse(toDateStr, dateFormatter);
+					LocalDateTime endOfDay = toDate.atTime(LocalTime.MAX);
+					toDateEndOfDayStr = endOfDay.format(dateFormatter);
+				}
+
+				if (companyWiseReq.getPageNo() == null && companyWiseReq.getPageSize() == null) {
+
+					List<CompUsgLogProjDTO> companyUsageList = this.companyMstRepository.findCompanyWiseUsageLog(
+							companyWiseReq.getEntityId(), companyWiseReq.getVendorCode(), companyWiseReq.getApiCode(),
+							fromDateStartOfDayStr, toDateEndOfDayStr, companyWiseReq.getRequestId());
+					responseEntity = ResponseEntity.ok(companyUsageList);
+				} else {
+					int pageNo = StringUtils.isNotBlank(companyWiseReq.getPageNo())
+							? Integer.parseInt(companyWiseReq.getPageNo()) - 1
+							: 0;
+					int pageSize = StringUtils.isNotBlank(companyWiseReq.getPageSize())
+							? Integer.parseInt(companyWiseReq.getPageSize())
+							: 10;
+
+					PageRequest pageable = PageRequest.of(pageNo, pageSize, Sort.by("requested_at").descending());
+
+					Page<CompUsgLogProjDTO> companyUsageList = this.companyMstRepository
+							.findCompanyWiseUsageLogPaginated(companyWiseReq.getEntityId(),
+									companyWiseReq.getVendorCode(), companyWiseReq.getApiCode(), fromDateStartOfDayStr,
+									toDateEndOfDayStr, companyWiseReq.getRequestId(), pageable);
+					PageableDataResponse pageDataRec = new PageableDataResponse();
+					pageDataRec.setTotalPages(companyUsageList.getTotalPages());
+					pageDataRec.setTotalElements(companyUsageList.getTotalElements());
+					pageDataRec.setResponseData(companyUsageList.getContent());
+					responseEntity = ResponseEntity.ok(pageDataRec);
+				}
+			} catch (Exception e) {
+				log.error(ERROR_GENERATED, e);
+				responseEntity = new ResponseEntity<>(PagebleResponses.builder().status(ReportUtilConstant.FALSE)
+						.message(ERROR_OCCURRED_IN_OPERATION).build(), HttpStatus.INTERNAL_SERVER_ERROR);
+			}
+		}
+
+		return responseEntity;
+	}
+
+	public ResponseEntity<Map<String, Object>> getCompanyList() {
+		Map<String, Object> responseMap = new HashMap<>();
+		List<CompanyMstEntity> companyList = null;
+
+		try {
+			companyList = this.companyMstRepository.findAllByOrderByBusinessNameAsc();
+			responseMap.put("data", companyList);
+		} catch (Exception e) {
+			log.error(ERROR_GENERATED, e);
+			responseMap.put("data", null);
+			return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(responseMap);
+		}
+		return ResponseEntity.ok(responseMap);
+	}
+
+	public ResponseEntity<Map<String, Object>> getApiList() {
+		Map<String, Object> responseMap = new HashMap<>();
+		List<ApiMstEntity> apiList = null;
+
+		try {
+			apiList = this.apiMstRepository.findAllByOrderByApiNameAsc();
+			responseMap.put("data", apiList);
+		} catch (Exception e) {
+			log.error(ERROR_GENERATED, e);
+			responseMap.put("data", null);
+			return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(responseMap);
+		}
+		return ResponseEntity.ok(responseMap);
+	}
+
+	public ResponseEntity<Object> getSearchHistoryByDateRange(SearchHistoryDTO searchHistoryDTO) {
+
+		ResponseEntity<Object> responseEntity = null;
+
+		List<ErrorsDto> errorList = ReportServiceValidations.searchHistoryReqValidation(searchHistoryDTO);
+
+		if (!errorList.isEmpty()) {
+			responseEntity = new ResponseEntity<>(PagebleResponses.builder().status(ReportUtilConstant.FALSE)
+					.error(errorList).message(ERROR_OCCURRED_IN_OPERATION).build(), HttpStatus.OK);
+		} else {
+
+			try {
+
+				List<SearchResponseDTO> responseDTOList = new ArrayList<>();
+				LocalDate fromlocalDate = LocalDate.parse(searchHistoryDTO.getFromDate(), DateTimeFormatter.ISO_DATE);
+				LocalDateTime fromDate = fromlocalDate.atStartOfDay();
+
+				LocalDate toLocalDate = LocalDate.parse(searchHistoryDTO.getToDate(), DateTimeFormatter.ISO_DATE);
+				LocalDateTime toDate = LocalDateTime.of(toLocalDate, LocalTime.MAX);
+
+				int page = StringUtils.isNotBlank(searchHistoryDTO.getPageNo())
+						? Integer.parseInt(searchHistoryDTO.getPageNo()) - 1
+						: 0;
+				int size = StringUtils.isNotBlank(searchHistoryDTO.getPageSize())
+						? Integer.parseInt(searchHistoryDTO.getPageSize())
+						: 10;
+
+				PageRequest pageable = PageRequest.of(page, size, Sort.by("requested_at").descending());
+
+				Page<SearchDetail> pageRecordEntity = searchDetailsRepositry
+						.findRecordsBetweenDates(searchHistoryDTO.getRequestedBy(), fromDate, toDate, pageable);
+
+				int totalPages = pageRecordEntity.getTotalPages();
+				Long totalElements = pageRecordEntity.getTotalElements();
+
+				List<SearchDetail> searchRecordEntity = pageRecordEntity.getContent();
+
+				if (Objects.nonNull(searchRecordEntity) && !searchRecordEntity.isEmpty()) {
+					for (SearchDetail entity : searchRecordEntity) {
+
+						DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+						LocalDateTime requestAt = entity.getRequestedAt();
+						String requestAtString = null;
+
+						if (requestAt != null) {
+							requestAtString = requestAt.format(formatter);
+						}
+
+						LocalDateTime receivedAt = entity.getResponseAt();
+						String receivedAtString = null;
+
+						if (receivedAt != null) {
+							receivedAtString = receivedAt.format(formatter);
+						}
+
+						SearchResponseDTO srcDTO = SearchResponseDTO.builder().cin(entity.getCin())
+								.companyName(entity.getCompanyName()).gstn(entity.getGstn())
+								.msmeNumber(entity.getMsmeNumber()).requestTime(requestAtString)
+								.responseTime(receivedAtString).msmeStatus(entity.getMsmeStatus())
+								.requestedBy(entity.getRequestedBy()).build();
+
+						responseDTOList.add(srcDTO);
+
+					}
+					PageableDataResponse pageDataRec = new PageableDataResponse();
+
+					pageDataRec.setTotalPages(totalPages);
+					pageDataRec.setTotalElements(totalElements);
+					pageDataRec.setResponseData(responseDTOList);
+					responseEntity = ResponseEntity.ok(pageDataRec);
+
+				} else {
+
+					responseEntity = new ResponseEntity<>(
+							PagebleResponses.builder().status(ReportUtilConstant.TRUE)
+									.message("No Record Found for this PageNo And Page Size")
+									.totalElements(totalElements).totalPages(totalPages).data(responseDTOList).build(),
+							HttpStatus.OK);
+
+				}
+				responseEntity = new ResponseEntity<>(PagebleResponses.builder().status(ReportUtilConstant.TRUE)
+						.message("Operation completed successfully.").totalElements(totalElements)
+						.totalPages(totalPages).data(responseDTOList).build(), HttpStatus.OK);
+
+			} catch (Exception e) {
+				log.error("Exception generated::", e);
+			}
+		}
+		return responseEntity;
+	}
+
+	// generate SearchHistory Excel Report
+	public ResponseEntity<byte[]> exportSearchHistoryReport(SearchHistoryDTO searchHistoryDTO,
+			HttpServletResponse response) {
+
+		LocalDate fromlocalDate = LocalDate.parse(searchHistoryDTO.getFromDate(), DateTimeFormatter.ISO_DATE);
+		LocalDateTime fromDate = fromlocalDate.atStartOfDay();
+
+		LocalDate  toLocalDate = LocalDate.parse(searchHistoryDTO.getToDate(), DateTimeFormatter.ISO_DATE);
+		LocalDateTime  toDate= LocalDateTime.of(toLocalDate, LocalTime.MAX);
+	
+		List<SearchDetail> results = searchDetailsRepositry.exportRecordsBetweenDates(searchHistoryDTO.getRequestedBy(), fromDate, toDate);
+        try{
+               String filename = "search_history_report.xlsx";
+               byte[] excelByteData = generateExcelReports(results);
+               HttpHeaders headers = new HttpHeaders();
+               headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);
+               headers.setContentDispositionFormData(filename, filename);
+               headers.setContentLength(excelByteData.length);
+
+            return new ResponseEntity<>(excelByteData, headers, org.springframework.http.HttpStatus.OK);
+        } catch (Exception e) {
+        	log.error(ERROR_GENERATED,e);
+        }
+		 return (ResponseEntity<byte[]>) ResponseEntity.ok();
+	}
+
+	// create a functions to generateReport
+	public static byte[] generateExcelReports(List<SearchDetail> results) throws IOException {
+
+		try (XSSFWorkbook workbook = new XSSFWorkbook()) {
+
+			XSSFSheet sheet = workbook.createSheet("Search History Report");
+
+			// create Header Row
+			XSSFRow headerRow = sheet.createRow(0);
+            String[] headers = {"CIN", "Company Name", "GSTN No", "MSME No", "Request Time", "Response Time", "MSME Status","Requested By","Remark"};
+            for (int i = 0; i < headers.length; i++) {
+            	XSSFCell cell = headerRow.createCell(i);
+                cell.setCellValue(headers[i]);
+               // Set header cell style
+                XSSFCellStyle style = workbook.createCellStyle();
+                style.setFillForegroundColor(IndexedColors.DARK_RED.getIndex());
+                style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+               // Make the Header Font Bold
+                Font font = workbook.createFont();
+                font.setBold(true);
+                font.setColor(IndexedColors.WHITE.getIndex()); // Set font color to white
+                style.setFont(font);
+                cell.setCellStyle(style); 
+                
+               // Center align the header text
+                style.setAlignment(HorizontalAlignment.CENTER);
+                cell.setCellStyle(style);
+            }
+    
+         // Create date format for the "Request Time" and "Response Time" columns
+            XSSFCellStyle dateStyle = workbook.createCellStyle();
+            XSSFCreationHelper createHelper = workbook.getCreationHelper();
+            dateStyle.setDataFormat(createHelper.createDataFormat().getFormat("yyyy-MM-dd HH:mm:ss"));
+            
+            //create data row
+            int rowNum = 1;
+            for(SearchDetail searchResult: results) {
+            	String remark ="";
+            	String msmeNumber = searchResult.getMsmeNumber();
+            	if(StringUtils.isEmpty(msmeNumber)) {
+					remark ="No Records Found";
+				}
+            	XSSFRow row = sheet.createRow(rowNum++);
+            	row.createCell(0).setCellValue(searchResult.getCin());
+            	row.createCell(1).setCellValue(searchResult.getCompanyName());
+            	row.createCell(2).setCellValue(searchResult.getGstn());
+            	row.createCell(3).setCellValue(searchResult.getMsmeNumber());
+            // Apply date format to "Request Time" and "Response Time" columns
+                XSSFCell requestTimeCell = row.createCell(4);
+                requestTimeCell.setCellValue(searchResult.getRequestedAt());
+                requestTimeCell.setCellStyle(dateStyle);
+                XSSFCell responseTimeCell = row.createCell(5);
+                responseTimeCell.setCellValue(searchResult.getResponseAt());
+                responseTimeCell.setCellStyle(dateStyle);
+            	row.createCell(6).setCellValue(searchResult.getMsmeStatus());
+            	row.createCell(7).setCellValue(searchResult.getRequestedBy());
+            	row.createCell(8).setCellValue(remark);
+            }    
+           //set the columns width
+            ManageServiceUtils.autoSizeAllColumnsWithMinWidth(sheet, 10 * 256);
+             //create a ByteArrayOutputStream
+               ByteArrayOutputStream  outputStream = new ByteArrayOutputStream();
+            //write  to ByteArrayOutputStream
+                 workbook.write(outputStream);
+             return outputStream.toByteArray();
+		}	
+	}
+
+}
