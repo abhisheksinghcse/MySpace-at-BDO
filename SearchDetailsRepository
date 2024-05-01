@@ -1,0 +1,33 @@
+package com.bdo.report.api.repository;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import com.bdo.report.api.entity.SearchDetailsEntity;
+import com.bdo.report.api.model.SearchDetail;
+
+public interface SearchDetailsRepository extends JpaRepository<SearchDetailsEntity,Long>{
+	//@Query(value ="SELECT * FROM am_search_detail WHERE requested_by = :requestedBy AND requested_at BETWEEN :fromDate AND :toDate", nativeQuery = true)
+	@Query(value = "select s.cin as Cin,s.company_name as CompanyName, s.gstn as Gstn,s.msme_number as MsmeNumber,s.msme_status as MsmeStatus, s.requested_at as requestedAt,s.response_at as ResponseAt , "
+			+ "concat( u.login_id,' (', u.first_name,' ',u.last_name,')') as RequestedBy from am_search_detail s join am_user_master u on s.requested_by = u.user_id "
+			+ " where s.requested_by =:requestedBy AND s.requested_at BETWEEN :fromDate AND :toDate",
+			countQuery = "SELECT COUNT(*) FROM am_search_detail s WHERE s.requested_by = :requestedBy AND s.requested_at BETWEEN :fromDate AND :toDate",
+			nativeQuery = true)
+    public Page<SearchDetail> findRecordsBetweenDates(@Param("requestedBy") Integer requestedBy, @Param("fromDate")LocalDateTime fromDate,
+			@Param("toDate") LocalDateTime toDate, @Param("pageable") Pageable pageable);
+
+	
+	@Query(value = "select s.cin as Cin,s.company_name as CompanyName, s.gstn as Gstn,s.msme_number as MsmeNumber,s.msme_status as MsmeStatus, s.requested_at as RequestedAt,s.response_at as ResponseAt , "
+			+ "concat( u.login_id,' (', u.first_name,' ',u.last_name,')') as RequestedBy from am_search_detail s join am_user_master u on s.requested_by = u.user_id "
+			+ " where s.requested_by =:requestedBy AND s.requested_at BETWEEN :fromDate AND :toDate", nativeQuery = true)
+	public List<SearchDetail> exportRecordsBetweenDates(int requestedBy, LocalDateTime fromDate, LocalDateTime toDate);
+
+		
+}
+ 
