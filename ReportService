@@ -1,0 +1,26 @@
+package com.bdo.report.service;
+
+import java.util.Map;
+
+import javax.servlet.http.HttpServletResponse;
+
+import org.springframework.http.ResponseEntity;
+
+import com.bdo.report.api.model.CompanyWiseApiReqDTO;
+import com.bdo.report.api.model.CompanyWiseUsageReqDTO;
+import com.bdo.report.api.model.SearchHistoryDTO;
+import com.bdo.report.api.model.VendorWiseReqDto;
+
+public interface ReportService {
+
+	ResponseEntity<Map<String, Object>> getList(String data);
+    ResponseEntity<Map<String, Object>> getVendorWiseApiList(VendorWiseReqDto vendorWiseReqDto);
+    ResponseEntity<Map<String, Object>> getVendorList();
+    ResponseEntity<Object> getCompanyWiseApiList(CompanyWiseApiReqDTO companyWiseReq);
+    ResponseEntity<Object> getCompanyWiseUsageLog(CompanyWiseUsageReqDTO companyWiseReq);
+    ResponseEntity<Map<String, Object>> getCompanyList();
+    ResponseEntity<Map<String, Object>> getApiList();
+    ResponseEntity<Object> getSearchHistoryByDateRange(SearchHistoryDTO searchHistoryDTO);
+    ResponseEntity<byte[]> exportSearchHistoryReport(SearchHistoryDTO searchHistoryDTO, HttpServletResponse response);
+    
+}
